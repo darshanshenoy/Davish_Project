@@ -1,44 +1,127 @@
 import AppleHealthKit, {
   HealthInputOptions,
-  HealthKitPermissions,
+  HealthKitPermissions
 } from 'react-native-health';
 import { useEffect, useState } from 'react';
 import { Platform } from 'react-native';
-
+import { addDays, startOfWeek } from 'date-fns';
 import {
   initialize,
   requestPermission,
-  readRecords,
+  readRecords
 } from 'react-native-health-connect';
 import { TimeRangeFilter } from 'react-native-health-connect/lib/typescript/types/base.types';
 
 const permissions: HealthKitPermissions = {
   permissions: {
     read: [
-      //AppleHealthKit.Constants.Permissions.ActiveEnergyBurned,
       AppleHealthKit.Constants.Permissions.Steps,
-      //AppleHealthKit.Constants.Permissions.FlightsClimbed,
-      AppleHealthKit.Constants.Permissions.DistanceWalkingRunning
+      AppleHealthKit.Constants.Permissions.DistanceWalkingRunning,
     ],
     write: [],
   },
 };
 
+export interface DayData {
+  date: Date;
+  steps: number;
+  distance: number;
+}
+
 const useHealthData = (date: Date) => {
   const [hasPermissions, setHasPermission] = useState(false);
   const [steps, setSteps] = useState(0);
-  const [flights, setFlights] = useState(0);
   const [distance, setDistance] = useState(0);
-  // const [caloriesBurned, setCaloriedBurned] = useState(0);
-  const [totalCaloriesBurned, setTotalCaloriesBurned] = useState(0);
-
-  // iOS - HealthKit
+  const [weeklyData, setWeeklyData] = useState<DayData[]>([]);
+   // iOS - Weekly Data Fetch
+  const fetchIOSWeeklyData = async () => {
+    const startDate = startOfWeek(date);
+    const weekData: DayData[] = [];
+     for (let i = 0; i < 7; i++) {
+      const currentDate = addDays(startDate, i);
+      const options: HealthInputOptions = {
+        date: currentDate.toISOString(),
+        includeManuallyAdded: false,
+      };
+       // Wrap the HealthKit calls in promises
+      const getStepsPromise = () =>
+        new Promise<number>((resolve, reject) => {
+          AppleHealthKit.getStepCount(options, (err, results) => {
+            if (err) reject(err);
+            else resolve(results.value);
+          });
+        });
+       const getDistancePromise = () =>
+        new Promise<number>((resolve, reject) => {
+          AppleHealthKit.getDistanceWalkingRunning(options, (err, results) => {
+            if (err) reject(err);
+            else resolve(results.value);
+          });
+        });
+       try {
+        const [stepsCount, distanceValue] = await Promise.all([
+          getStepsPromise(),
+          getDistancePromise(),
+        ]);
+         weekData.push({
+          date: currentDate,
+          steps: stepsCount,
+          distance: distanceValue,
+        });
+      } catch (error) {
+        console.log('Error fetching iOS weekly data:', error);
+        weekData.push({
+          date: currentDate,
+          steps: 0,
+          distance: 0,
+        });
+      }
+    }
+     setWeeklyData(weekData);
+  };
+   // Android - Weekly Data Fetch
+  const fetchAndroidWeeklyData = async () => {
+    const startDate = startOfWeek(date);
+    const weekData: DayData[] = [];
+     for (let i = 0; i < 7; i++) {
+      const currentDate = addDays(startDate, i);
+      const timeRangeFilter: TimeRangeFilter = {
+        operator: 'between',
+        startTime: new Date(currentDate.setHours(0, 0, 0, 0)).toISOString(),
+        endTime: new Date(currentDate.setHours(23, 59, 59, 999)).toISOString(),
+      };
+       try {
+        // Fetch steps
+        const stepsRecords = await readRecords('Steps', { timeRangeFilter });
+        const totalSteps = stepsRecords.reduce((sum, cur) => sum + cur.count, 0);
+         // Fetch distance
+        const distanceRecords = await readRecords('Distance', { timeRangeFilter });
+        const totalDistance = distanceRecords.reduce(
+          (sum, cur) => sum + cur.distance.inMeters,
+          0
+        );
+         weekData.push({
+          date: currentDate,
+          steps: totalSteps,
+          distance: totalDistance,
+        });
+      } catch (error) {
+        console.log('Error fetching Android weekly data:', error);
+        weekData.push({
+          date: currentDate,
+          steps: 0,
+          distance: 0,
+        });
+      }
+    }
+     setWeeklyData(weekData);
+  };
+   // iOS - HealthKit initialization
   useEffect(() => {
     if (Platform.OS !== 'ios') {
       return;
     }
-
-    AppleHealthKit.isAvailable((err, isAvailable) => {
+     AppleHealthKit.isAvailable((err, isAvailable) => {
       if (err) {
         console.log('Error checking availability');
         return;
@@ -56,119 +139,72 @@ const useHealthData = (date: Date) => {
       });
     });
   }, []);
-
+   // iOS - Daily Data Fetch
   useEffect(() => {
-    if (!hasPermissions) {
+    if (!hasPermissions || Platform.OS !== 'ios') {
       return;
     }
-
-    const options: HealthInputOptions = {
+     const options: HealthInputOptions = {
       date: date.toISOString(),
       includeManuallyAdded: false,
     };
-
-    AppleHealthKit.getStepCount(options, (err, results) => {
+     AppleHealthKit.getStepCount(options, (err, results) => {
       if (err) {
         console.log('Error getting the steps');
         return;
       }
       setSteps(results.value);
     });
-
-    // AppleHealthKit.getFlightsClimbed(options, (err, results) => {
-    //   if (err) {
-    //     console.log('Error getting the steps:', err);
-    //     return;
-    //   }
-    //   setFlights(results.value);
-    // });
-
-    // AppleHealthKit.getActiveEnergyBurned(options, (err, results) => {
-    //   if (err) {
-    //     console.log('Error getting active calories:', err);
-    //     return;
-    //   }
-    //   setTotalCaloriesBurned(results.values?.[0]?.value || 0);
-    // });
-
-    AppleHealthKit.getDistanceWalkingRunning(options, (err, results) => {
+     AppleHealthKit.getDistanceWalkingRunning(options, (err, results) => {
       if (err) {
-        console.log('Error getting the steps:', err);
+        console.log('Error getting the distance');
         return;
       }
       setDistance(results.value);
     });
+     // Fetch weekly data
+    fetchIOSWeeklyData();
   }, [hasPermissions, date]);
-
-  // Android - Health Connect
-  const readSampleData = async () => {
-    // initialize the client
+   // Android - Health Connect
+  const readAndroidData = async () => {
     const isInitialized = await initialize();
     if (!isInitialized) {
       return;
     }
-
-    // request permissions
-    await requestPermission([
+     await requestPermission([
       { accessType: 'read', recordType: 'Steps' },
       { accessType: 'read', recordType: 'Distance' },
-      { accessType: 'read', recordType: 'FloorsClimbed' },
-      // { accessType: 'read', recordType: 'ActiveCaloriesBurned' },
-      { accessType: 'read', recordType: 'TotalCaloriesBurned' }
     ]);
-
-    const timeRangeFilter: TimeRangeFilter = {
+     const timeRangeFilter: TimeRangeFilter = {
       operator: 'between',
       startTime: new Date(date.setHours(0, 0, 0, 0)).toISOString(),
       endTime: new Date(date.setHours(23, 59, 59, 999)).toISOString(),
     };
-
-    // Steps
+     // Steps
     const steps = await readRecords('Steps', { timeRangeFilter });
     const totalSteps = steps.reduce((sum, cur) => sum + cur.count, 0);
     setSteps(totalSteps);
-
-    // Distance
+     // Distance
     const distance = await readRecords('Distance', { timeRangeFilter });
     const totalDistance = distance.reduce(
       (sum, cur) => sum + cur.distance.inMeters,
       0
     );
     setDistance(totalDistance);
-
-    //Calories Burned
-    // const calories = await readRecords('ActiveCaloriesBurned', { timeRangeFilter });
-    // const totalCalories = calories.reduce((sum, cur) => sum + cur.energy.inCalories, 0)
-    // setCaloriedBurned(totalCalories)
-
-    //Total Calories Burned
-    // const totalCaloriesTillToday = await readRecords('TotalCaloriesBurned', { timeRangeFilter });
-    // const finalCalories = totalCaloriesTillToday.reduce((sum, cur) => sum + cur.energy.inCalories, 0);
-    // console.log(finalCalories)
-    // setTotalCaloriesBurned(finalCalories);
-
-    // Floors climbed
-    // const floorsClimbed = await readRecords('FloorsClimbed', {
-    //   timeRangeFilter,
-    // });
-    // const totalFloors = floorsClimbed.reduce((sum, cur) => sum + cur.floors, 0);
-    // setFlights(totalFloors);
-    // console.log(floorsClimbed);
+     // Fetch weekly data
+    await fetchAndroidWeeklyData();
   };
-
+   // Android - Data Fetch
   useEffect(() => {
     if (Platform.OS !== 'android') {
       return;
     }
-    readSampleData();
+    readAndroidData();
   }, [date]);
-
-  return {
+   return {
     steps,
-    //flights,
     distance,
-    // Calories,
-    //totalCaloriesBurned
+    weeklyData,
   };
 };
 
