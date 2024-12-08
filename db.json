@@ -1,0 +1,7 @@
+{
+    "leaderboard": [
+      { "rank": 1, "name": "Alice", "points": 1200 },
+      { "rank": 2, "name": "Bob", "points": 1000 },
+      { "rank": 3, "name": "Charlie", "points": 800 }
+    ]
+  }

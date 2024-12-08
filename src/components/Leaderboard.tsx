@@ -22,22 +22,26 @@ const Leaderboard: React.FC = () => {
     ];
 
     useEffect(() => {
-        const fetchData = async () => {  // Rename the function to avoid confusion
+        const fetchData = async () => {
             try {
-                setLoading(true); // Set loading to true before the fetch
-                const data: LeaderboardEntry[] = await fetchLeaderboardData(); // Call the external fetchLeaderboardData
+                setLoading(true);
+                const response = await fetch('http://localhost:3000/leaderboard');
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                const data: LeaderboardEntry[] = await response.json();
                 setLeaderboardData(data);
-                setError(null); // Clear any previous error
+                setError(null);
             } catch (err: any) {
                 setError(err.message);
-                setLeaderboardData(dummyData); // Use dummy data if fetch fails
+                setLeaderboardData(dummyData);
             } finally {
                 setLoading(false);
             }
         };
     
-        fetchData(); // Call the fetchData function
-    }, []); // Empty dependency array to run only once
+        fetchData();
+    }, []);
 
     if (loading) {
         return <Text>Loading leaderboard...</Text>;
